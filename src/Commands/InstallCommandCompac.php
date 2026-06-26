@@ -1,6 +1,6 @@
 <?php
 
-namespace julio101290\boilerplatelog\Commands;
+namespace julio101290\boilerplatecompac\Commands;
 
 use CodeIgniter\CLI\BaseCommand;
 use Config\Database;
@@ -10,7 +10,7 @@ use CodeIgniter\CLI\CLI;
 /**
  * Class InstallCommand.
  */
-class InstallCommandLog extends BaseCommand
+class InstallCommandCompac extends BaseCommand
 {
     /**
      * The group the command is lumped under
@@ -18,28 +18,28 @@ class InstallCommandLog extends BaseCommand
      *
      * @var string
      */
-    protected $group = 'boilerplatelog';
+    protected $group = 'boilerplatecompac';
 
     /**
      * The command's name.
      *
      * @var string
      */
-    protected $name = 'boilerplatelog:installlog';
+    protected $name = 'boilerplatecompac:installcompac';
 
     /**
      * The command's short description.
      *
      * @var string
      */
-    protected $description = 'Db install for basic boilerplate CRUD companies data.';
+    protected $description = 'Db install for basic boilerplate CRUD companies compac data.';
 
     /**
      * The command's usage.
      *
      * @var string
      */
-    protected $usage = 'boilerplatecompanies:installlog';
+    protected $usage = 'boilerplatecompac:installcompac';
 
     /**
      * The commamd's argument.
@@ -72,7 +72,7 @@ class InstallCommandLog extends BaseCommand
             $this->call('migrate');
             // then seed data
             $seeder = Database::seeder();
-            $seeder->call('julio101290\boilerplatelog\Database\Seeds\BoilerplateLog');
+            $seeder->call('julio101290\boilerplatecompac\Database\Seeds\BoilerplateCompac');
         } catch (\Exception $e) {
             $this->showError($e);
         }

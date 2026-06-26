@@ -1,6 +1,6 @@
 <?php
 
-namespace julio101290\boilerplatelog\Database\Seeds;
+namespace julio101290\boilerplatecompac\Database\Seeds;
 
 use CodeIgniter\Config\Services;
 use CodeIgniter\Database\Seeder;
@@ -10,7 +10,7 @@ use Myth\Auth\Models\UserModel;
 /**
  * Class BoilerplateSeeder.
  */
-class BoilerplateLog extends Seeder {
+class BoilerplateCompac extends Seeder {
 
     /**
      * @var Authorize
@@ -37,10 +37,10 @@ class BoilerplateLog extends Seeder {
 
 
         // Permission
-        $this->authorize->createPermission('log-permission', 'Permissions for logs');
+        $this->authorize->createPermission('compacDB-permission', 'Permissions for compac connection');
 
         // Assign Permission to user
-        $this->authorize->addPermissionToUser('log-permission', 1);
+        $this->authorize->addPermissionToUser('compacDB-permission', 1);
 
     }
 
