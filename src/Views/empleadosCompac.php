@@ -222,6 +222,7 @@
         </div>
     </div>
 </div>
+
 <?= $this->endSection() ?>
 
 <?= $this->section('js') ?>
@@ -230,7 +231,8 @@
 
 <script>
     var tableCompacEmpleados;
-    var localStream = null; // Definida para evitar fugas globales latentes
+    var idCompacDBActual = 0;
+    var localStream = null;
 
     $(document).ready(function () {
         $.ajaxSetup({headers: {'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')}});
@@ -239,61 +241,78 @@
             $('.select2').select2();
         }
 
+        // =============================================
+        // DATATABLE CON SERVER-SIDE PROCESSING
+        // =============================================
         tableCompacEmpleados = $('#tableCompacEmpleados').DataTable({
-            "language": {"url": "https://cdn.datatables.net/plug-ins/1.10.20/i18n/Spanish.json"},
-            "responsive": true
-        });
-
-        $('#selectCompacDB').on('change', function () {
-            var idCompacDB = $(this).val();
-            if (!idCompacDB) {
-                tableCompacEmpleados.clear().draw();
-                return;
-            }
-
-            let datos = new FormData();
-            datos.append("idCompacDB", idCompacDB);
-
-            $.ajax({
-                url: "<?= base_url('admin/compacEmpleados/getEmpleados') ?>",
-                method: "POST",
-                data: datos,
-                cache: false,
-                contentType: false,
-                processData: false,
-                dataType: "json",
-                success: function (respuesta) {
-                    if (respuesta.csrf_hash) {
-                        updateCSRF(respuesta.csrf_hash);
-                    }
-                    tableCompacEmpleados.clear();
-
-                    if (respuesta.status === 200 && respuesta.data.length > 0) {
-                        var dataSet = respuesta.data.map(function (emp) {
-                            var codigo = emp.codigoempleado || emp.CodigoEmpleado || '';
-                            var botonAccion = `
-<div class="btn-group btn-group-sm d-flex">
-    <a href="<?= base_url('admin/compacEmpleados/credencialGenerator') ?>?idCompacDB=${idCompacDB}&codigoempleado=${codigo}" target="_blank" class="btn btn-outline-danger w-100"><i class="fas fa-id-card"></i> Configurar</a>
-    <button type="button" class="btn btn-dark" onclick="abrirModalCamara('${codigo}', '${idCompacDB}')" title="Subir o Tomar Foto"><i class="fas fa-camera"></i> / <i class="fas fa-upload"></i></button>
-</div>`;
-                            return [
-                                codigo,
-                                emp.nombrelargo || emp.NombreLargo || '',
-                                emp.puesto || emp.Puesto || 'Sin puesto',
-                                emp.CorreoElectronico || 'Sin correo',
-                                emp.localidad || 'Sin localidad',
-                                botonAccion
-                            ];
-                        });
-                        tableCompacEmpleados.rows.add(dataSet).draw();
+            language: {url: "https://cdn.datatables.net/plug-ins/1.10.20/i18n/Spanish.json"},
+            responsive: true,
+            processing: true,
+            serverSide: true,
+            searching: true,
+            ajax: {
+                url: "<?= base_url('admin/compacEmpleados/getEmpleadosServerSide') ?>",
+                type: "POST",
+                data: function (d) {
+                    d.idCompacDB = idCompacDBActual;
+                },
+                dataSrc: function (json) {
+                    if (json.csrf_hash) updateCSRF(json.csrf_hash);
+                    return json.data ?? [];
+                },
+                error: function (xhr, error, thrown) {
+                    console.error('DataTables AJAX error:', error, thrown);
+                }
+            },
+            columns: [
+                {title: "Código",           data: 0},
+                {title: "Nombre",           data: 1},
+                {title: "Puesto",           data: 2},
+                {title: "Correo",           data: 3},
+                {title: "Localidad",        data: 4},
+                {
+                    title: "Acciones",
+                    data: 5,
+                    orderable: false,
+                    searchable: false,
+                    render: function (codigo) {
+                        return `
+                        <div class="btn-group btn-group-sm d-flex">
+                            <a href="<?= base_url('admin/compacEmpleados/credencialGenerator') ?>?idCompacDB=${idCompacDBActual}&codigoempleado=${codigo}"
+                               target="_blank"
+                               class="btn btn-outline-danger w-100">
+                                <i class="fas fa-id-card"></i> Configurar
+                            </a>
+                            <button type="button"
+                                class="btn btn-dark"
+                                onclick="abrirModalCamara('${codigo}', '${idCompacDBActual}')"
+                                title="Subir o Tomar Foto">
+                                <i class="fas fa-camera"></i> / <i class="fas fa-upload"></i>
+                            </button>
+                        </div>`;
                     }
                 }
-            });
+            ],
+            // No disparar el ajax hasta que haya una DB seleccionada
+            initComplete: function () {
+                this.api().ajax.reload(null, false);
+            }
         });
 
+        // =============================================
+        // CAMBIO DE BASE DE DATOS
+        // =============================================
+        $('#selectCompacDB').on('change', function () {
+            idCompacDBActual = $(this).val() || 0;
+            tableCompacEmpleados.ajax.reload();
+        });
+
+        // =============================================
+        // MODAL CREDENCIAL (click en btn-credencial legacy)
+        // =============================================
         $('#tableCompacEmpleados').on('click', '.btn-credencial', function () {
             var codigoEmpleado = $(this).data('codigo');
-            var idCompacDB = $('#selectCompacDB').val();
+            var idCompacDB = idCompacDBActual;
 
             let datos = new FormData();
             datos.append("idCompacDB", idCompacDB);
@@ -308,24 +327,20 @@
                 processData: false,
                 dataType: "json",
                 success: function (respuesta) {
-                    if (respuesta.csrf_hash) {
-                        updateCSRF(respuesta.csrf_hash);
-                    }
+                    if (respuesta.csrf_hash) updateCSRF(respuesta.csrf_hash);
 
                     if (respuesta.status === 200) {
                         let cfg = respuesta.config;
-
                         $('#view-name').text(cfg['f-nombre']);
                         $('#view-puesto').text(cfg['f-puesto']);
                         $('#view-id').text(cfg['f-id']);
                         $('#view-back-correo').text(cfg['f-correo']);
                         $('#view-back-localidad').text($('#selectCompacDB option:selected').text());
 
-                        if (cfg['photo-src']) {
-                            $('#view-photo').attr('src', cfg['photo-src']);
-                        } else {
-                            $('#view-photo').attr('src', 'https://via.placeholder.com/130x165?text=Sin+Foto');
-                        }
+                        $('#view-photo').attr('src', cfg['photo-src']
+                            ? cfg['photo-src']
+                            : 'https://via.placeholder.com/130x165?text=Sin+Foto'
+                        );
 
                         $('#jsonConfigArea').val(JSON.stringify(cfg, null, 4));
                         $('#modalCredencial').modal('show');
@@ -334,6 +349,9 @@
             });
         });
 
+        // =============================================
+        // EXPORTAR PDF
+        // =============================================
         $('#btnDescargarPDF').on('click', async function () {
             const {jsPDF} = window.jspdf;
             const nombreEmpleado = $('#view-name').text().trim() || 'Empleado';
@@ -342,17 +360,11 @@
                 title: 'Generando PDF de alta definición...',
                 text: 'Procesando vectores y matrices de imagen',
                 allowOutsideClick: false,
-                didOpen: () => {
-                    Swal.showLoading();
-                }
+                didOpen: () => Swal.showLoading()
             });
 
             try {
-                const pdf = new jsPDF({
-                    orientation: 'portrait',
-                    unit: 'mm',
-                    format: [54, 85.6]
-                });
+                const pdf = new jsPDF({orientation: 'portrait', unit: 'mm', format: [54, 85.6]});
 
                 const frontCanvas = await html2canvas(document.getElementById('card-front'), {scale: 3, useCORS: true});
                 pdf.addImage(frontCanvas.toDataURL('image/png'), 'PNG', 0, 0, 54, 85.6);
@@ -372,6 +384,9 @@
         });
     });
 
+    // =============================================
+    // FUNCIONES GLOBALES
+    // =============================================
     function updateCSRF(hash) {
         $('meta[name="csrf-token"]').attr('content', hash);
         $.ajaxSetup({headers: {'X-CSRF-TOKEN': hash}});
@@ -422,11 +437,10 @@
                 img.onload = function () {
                     var canvas = document.getElementById('photoPreviewCanvas');
                     var ctx = canvas.getContext('2d');
-
                     canvas.width = 450;
                     canvas.height = 570;
 
-                    var imgRatio = img.width / img.height;
+                    var imgRatio   = img.width / img.height;
                     var targetRatio = canvas.width / canvas.height;
                     var sx, sy, sw, sh;
 
@@ -452,22 +466,17 @@
     }
 
     function capturarFotograma() {
-        var video = document.getElementById('cameraStream');
+        var video  = document.getElementById('cameraStream');
         var canvas = document.getElementById('photoPreviewCanvas');
-        var ctx = canvas.getContext('2d');
+        var ctx    = canvas.getContext('2d');
 
-        canvas.width = 450;
+        canvas.width  = 450;
         canvas.height = 570;
 
         var sourceWidth = video.videoHeight * 0.78;
-        var sourceX = (video.videoWidth - sourceWidth) / 2;
+        var sourceX     = (video.videoWidth - sourceWidth) / 2;
 
-        ctx.drawImage(
-            video,
-            sourceX, 0, sourceWidth, video.videoHeight,
-            0, 0, canvas.width, canvas.height
-        );
-
+        ctx.drawImage(video, sourceX, 0, sourceWidth, video.videoHeight, 0, 0, canvas.width, canvas.height);
         detenerCamara();
         congelarUIConFoto();
     }
@@ -488,21 +497,21 @@
     }
 
     function subirFotoServidor() {
-        var canvas = document.getElementById('photoPreviewCanvas');
+        var canvas    = document.getElementById('photoPreviewCanvas');
         var base64Data = canvas.toDataURL('image/jpeg', 0.9);
         var idEmpleado = $('#camera_id_empleado').val();
-        var idDB = $('#camera_id_db').val();
+        var idDB       = $('#camera_id_db').val();
 
         let datos = new FormData();
         datos.append("id_empleado", idEmpleado);
-        datos.append("idCompacDB", idDB);
-        datos.append("fotoBase64", base64Data);
+        datos.append("idCompacDB",  idDB);
+        datos.append("fotoBase64",  base64Data);
 
         Swal.fire({
             title: 'Guardando fotografía...',
             text: 'Escribiendo binarios y actualizando registros',
             allowOutsideClick: false,
-            didOpen: () => { Swal.showLoading(); }
+            didOpen: () => Swal.showLoading()
         });
 
         $.ajax({
@@ -515,19 +524,18 @@
             dataType: "json",
             success: function (respuesta) {
                 Swal.close();
-                if (respuesta.csrf_hash) {
-                    updateCSRF(respuesta.csrf_hash);
-                }
+                if (respuesta.csrf_hash) updateCSRF(respuesta.csrf_hash);
 
                 if (respuesta.status === 200) {
                     $('#modalTomarFoto').modal('hide');
                     Swal.fire('¡Éxito!', 'La fotografía se procesó y guardó de forma correcta.', 'success');
-                    if (tableCompacEmpleados) $('#selectCompacDB').trigger('change');
+                    // Recargar solo la página actual del DataTable
+                    if (tableCompacEmpleados) tableCompacEmpleados.ajax.reload(null, false);
                 } else {
                     Swal.fire('Error', respuesta.message || 'No se pudo guardar la imagen.', 'error');
                 }
             },
-            error: function (err) {
+            error: function () {
                 Swal.close();
                 Swal.fire('Fallo del Servidor', 'Ocurrió un error crítico de red durante la transferencia.', 'error');
             }

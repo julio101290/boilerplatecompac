@@ -198,10 +198,10 @@ class CompacDBController extends BaseController {
 
         if (empty($idCompacDB)) {
             return $this->respond([
-                        'status' => 400,
-                        'message' => 'Falta el ID del registro.',
-                        'csrf_hash' => csrf_hash()
-                            ], 400);
+                'status' => 400,
+                'message' => 'Falta el ID del registro.',
+                'csrf_hash' => csrf_hash()
+            ], 400);
         }
 
         $registro = $this->compacDB->whereIn('idEmpresa', $empresasID)
@@ -210,29 +210,33 @@ class CompacDBController extends BaseController {
 
         if (!$registro) {
             return $this->respond([
-                        'status' => 404,
-                        'message' => 'Registro no encontrado.',
-                        'csrf_hash' => csrf_hash()
-                            ], 404);
+                'status' => 404,
+                'message' => 'Registro no encontrado.',
+                'csrf_hash' => csrf_hash()
+            ], 404);
         }
 
         try {
             // Ajusta estos nombres de campos según tu tabla real
             $config = [
-                'DBDriver' => 'SQLSRV',
-                'hostname' => $registro['host'] ?? '',
-                'database' => $registro['database'] ?? '',
-                'username' => $registro['user'] ?? '',
-                'password' => $registro['password'] ?? '',
-                'port' => $registro['port'] ?? 1433,
+                'DBDriver'     => 'SQLSRV',
+                'hostname'     => $registro['host'] ?? '',
+                'database'     => $registro['database'] ?? '',
+                'username'     => $registro['user'] ?? '',
+                'password'     => $registro['password'] ?? '',
+                'port'         => $registro['port'] ?? 1433,
+                'charset'      => 'utf8',
+                'CharacterSet' => 'UTF-8', // Fuerza al driver nativo de Windows a regresar strings en UTF-8
+                'encrypt'      => false, // Desactiva la encriptación estricta de datos
+                'TrustServerCertificate' => true, // Evita la espera de validación de certificados SSL
             ];
 
             if (empty($config['hostname']) || empty($config['database'])) {
                 return $this->respond([
-                            'status' => 400,
-                            'message' => 'Faltan datos de conexión: servidor o base de datos.',
-                            'csrf_hash' => csrf_hash()
-                                ], 400);
+                    'status' => 400,
+                    'message' => 'Faltan datos de conexión: servidor o base de datos.',
+                    'csrf_hash' => csrf_hash()
+                ], 400);
             }
 
             $db = \Config\Database::connect($config, false);
@@ -244,24 +248,28 @@ class CompacDBController extends BaseController {
 
             if ($resultado && isset($resultado['test_connection'])) {
                 return $this->respond([
-                            'status' => 200,
-                            'message' => 'Conexión correcta a SQL Server.',
-                            'data' => $resultado,
-                            'csrf_hash' => csrf_hash()
-                                ], 200);
+                    'status' => 200,
+                    'message' => 'Conexión correcta a SQL Server.',
+                    'data' => $resultado,
+                    'csrf_hash' => csrf_hash()
+                ], 200);
             }
 
             return $this->respond([
-                        'status' => 500,
-                        'message' => 'Se conectó, pero no se pudo validar la consulta de prueba.',
-                        'csrf_hash' => csrf_hash()
-                            ], 500);
+                'status' => 500,
+                'message' => 'Se conectó, pero no se pudo validar la consulta de prueba.',
+                'csrf_hash' => csrf_hash()
+            ], 500);
         } catch (\Throwable $e) {
+            // Capturamos el error original y nos aseguramos de que sea UTF-8 válido
+            $mensajeError = $e->getMessage();
+            $mensajeError = mb_convert_encoding($mensajeError, 'UTF-8', 'UTF-8, ISO-8859-1, Windows-1252');
+
             return $this->respond([
-                        'status' => 500,
-                        'message' => 'Error de conexión: ' . $e->getMessage(),
-                        'csrf_hash' => csrf_hash()
-                            ], 500);
+                'status' => 500,
+                'message' => 'Error de conexión: ' . $mensajeError,
+                'csrf_hash' => csrf_hash()
+            ], 500);
         }
     }
 }

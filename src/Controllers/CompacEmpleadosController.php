@@ -87,297 +87,419 @@ class CompacEmpleadosController extends BaseController {
             return $this->respond(['status' => 500, 'message' => 'Error: ' . $e->getMessage(), 'csrf_hash' => csrf_hash()], 500);
         }
     }
-
     public function getCredencialConfig() {
         helper('auth');
-        $idUser = user()->id;
-        $empresas = $this->empresa->mdlEmpresasPorUsuario($idUser);
+        $idUser     = user()->id;
+        $empresas   = $this->empresa->mdlEmpresasPorUsuario($idUser);
         $empresasID = count($empresas) === 0 ? [0] : array_column($empresas, 'id');
-
-        $idCompacDB = (int) $this->request->getPost('idCompacDB');
+    
+        $idCompacDB     = (int) $this->request->getPost('idCompacDB');
         $codigoEmpleado = $this->request->getPost('codigoempleado');
-
+    
         $registro = $this->compacDB->whereIn('idEmpresa', $empresasID)->where('id', $idCompacDB)->first();
         if (!$registro) {
             return $this->respond(['status' => 404, 'message' => 'Base de datos inválida.'], 404);
         }
-
+    
         try {
-            $empleados = $this->empleado->getEmpleadosPorConexion($registro);
-            $empleadoTarget = null;
-
-            foreach ($empleados as $emp) {
-                $curCode = $emp['codigoempleado'] ?? $emp['CodigoEmpleado'] ?? '';
-                if ($curCode == $codigoEmpleado) {
-                    $rawFoto = $emp['fotografia'] ?? $emp['Fotografia'] ?? null;
-
-                    // Quitamos los binarios antes de limpiar el array
-                    unset($emp['fotografia'], $emp['Fotografia']);
-
-                    $empleadoTarget = $this->utf8EncodeRecursive($emp);
-
-                    // Guardamos la referencia limpia procesada, SIN reinyectar el binario crudo
-                    $empleadoTarget['has_raw_photo'] = !empty($rawFoto);
-                    break;
-                }
+            $emp = $this->empleado->getEmpleadoPorCodigo($registro, $codigoEmpleado);
+    
+            if (!$emp) {
+                return $this->respond(['status' => 404, 'message' => 'Empleado no encontrado.'], 404);
             }
-
-            if (!$empleadoTarget) {
-                return $this->respond(['status' => 404, 'message' => 'No se encontraron los detalles del empleado.'], 404);
-            }
-
-            $photoSrc = "";
-            $fotoLocal = $this->empleadoFotosMdl->where('idCompacDB', $idCompacDB)
-                    ->where('id_empleado', $codigoEmpleado)
-                    ->first();
-
+    
+            $rawFoto = $emp['fotografia'] ?? null;
+            unset($emp['fotografia']);
+            $emp = $this->utf8EncodeRecursive($emp);
+    
+            // Prioridad: foto local > foto CONTPAQi
+            $photoSrc  = "";
+            $fotoLocal = $this->empleadoFotosMdl
+                ->where('idCompacDB', $idCompacDB)
+                ->where('id_empleado', $codigoEmpleado)
+                ->first();
+    
             if ($fotoLocal && !empty($fotoLocal['rutaFoto'])) {
                 $realPath = WRITEPATH . str_replace('uploads/', '', $fotoLocal['rutaFoto']);
                 if (file_exists($realPath)) {
                     $photoSrc = "data:" . mime_content_type($realPath) . ";base64," . base64_encode(file_get_contents($realPath));
                 }
             }
-
-            // Si no hay foto local pero sí binario en CONTPAQi, lo convertimos de forma segura
-            if (empty($photoSrc) && $empleadoTarget['has_raw_photo']) {
+    
+            if (empty($photoSrc) && !empty($rawFoto)) {
                 $photoSrc = $this->convertBmpToPngBase64($rawFoto);
             }
-
+    
             $configuracionCredencial = [
-                "st" => [
+                "st"       => [
                     "nombre" => ["b" => true, "i" => false, "u" => false],
                     "puesto" => ["b" => true, "i" => false, "u" => false],
-                    "id" => ["b" => true, "i" => false, "u" => false]
+                    "id"     => ["b" => true, "i" => false, "u" => false]
                 ],
-                "f-nombre" => $empleadoTarget['nombrelargo'] ?? $empleadoTarget['NombreLargo'] ?? '',
-                "f-puesto" => $empleadoTarget['puesto'] ?? $empleadoTarget['Puesto'] ?? 'GENERAL',
-                "f-id" => $codigoEmpleado,
-                "f-correo" => $empleadoTarget['CorreoElectronico'] ?? 'S/C',
+                "f-nombre"  => $emp['nombrelargo'] ?? '',
+                "f-puesto"  => $emp['puesto'] ?? 'GENERAL',
+                "f-id"      => $codigoEmpleado,
+                "f-correo"  => $emp['CorreoElectronico'] ?? 'S/C',
                 "fs-nombre" => "10", "fc-nombre" => "#ffffff",
-                "fs-puesto" => "8", "fc-puesto" => "#dddddd",
-                "fs-id" => "12", "fc-id" => "#cc1111",
-                "f-qr" => $codigoEmpleado,
-                "f-scan" => "ESCÁNÉAME", "fs-scan" => "7", "fc-scan" => "#cc1111",
-                "f-pie-r" => "PROPIEDAD DE CONSTRUCTORA GUSA SA DE CV", "fs-pie-r" => "6", "fc-pie-r" => "#ffffff",
-                "fbg-pie-r" => "#cc1111",
-                "photo-w" => "97", "photo-h" => "130", "photo-y" => "66", "qr-size" => "100", "qr-y" => "54",
+                "fs-puesto" => "8",  "fc-puesto" => "#dddddd",
+                "fs-id"     => "12", "fc-id"     => "#cc1111",
+                "f-qr"      => $codigoEmpleado,
+                "f-scan"    => "ESCÁNÉAME", "fs-scan" => "7", "fc-scan" => "#cc1111",
+                "f-pie-r"   => "PROPIEDAD DE CONSTRUCTORA GUSA SA DE CV",
+                "fs-pie-r"  => "6", "fc-pie-r" => "#ffffff", "fbg-pie-r" => "#cc1111",
+                "photo-w"   => "97", "photo-h" => "130", "photo-y" => "66",
+                "qr-size"   => "100", "qr-y" => "54",
                 "photo-src" => $photoSrc
             ];
-
-            return $this->respond([
-                        'status' => 200,
-                        'config' => $configuracionCredencial,
-                        'csrf_hash' => csrf_hash()
-                            ], 200);
+    
+            return $this->respond(['status' => 200, 'config' => $configuracionCredencial, 'csrf_hash' => csrf_hash()]);
+    
         } catch (\Throwable $e) {
             return $this->respond(['status' => 500, 'message' => $e->getMessage()], 500);
         }
     }
-
+    
     public function credencialGenerator() {
         helper('auth');
-        $idUser = user()->id;
-        $empresas = $this->empresa->mdlEmpresasPorUsuario($idUser);
+        $idUser     = user()->id;
+        $empresas   = $this->empresa->mdlEmpresasPorUsuario($idUser);
         $empresasID = count($empresas) === 0 ? [0] : array_column($empresas, 'id');
-
-        $idCompacDB = (int) $this->request->getGet('idCompacDB');
+    
+        $idCompacDB     = (int) $this->request->getGet('idCompacDB');
         $codigoEmpleado = $this->request->getGet('codigoempleado');
-
+    
         if (!$idCompacDB || !$codigoEmpleado) {
             throw new \CodeIgniter\Exceptions\PageNotFoundException('Faltan parámetros.');
         }
-
+    
         $registro = $this->compacDB->whereIn('idEmpresa', $empresasID)->where('id', $idCompacDB)->first();
         if (!$registro) {
             throw new \CodeIgniter\Exceptions\PageNotFoundException('Base de datos no encontrada.');
         }
-
-        // --- SECCIÓN: LOGO Y DATOS DE LA EMPRESA LIGADOS A $registro ---
+    
+        // Datos de empresa
         $datosEmpresaObj = null;
-        $datosEmpresa = null;
+        $datosEmpresa    = null;
         if (!empty($registro['idEmpresa'])) {
             $datosEmpresaObj = $this->empresa->where("id", $registro['idEmpresa'])->asObject()->first();
-            if ($datosEmpresaObj) {
-                $datosEmpresa = (array) $datosEmpresaObj;
-            }
+            if ($datosEmpresaObj) $datosEmpresa = (array) $datosEmpresaObj;
         }
-        // ------------------------------------------------------------------------
-        // === SECCIÓN: PROCESAMIENTO MULTIBASE DE LOCALIDADES ===
-        $listaLocalidades = [];
-        $todasConexiones = $this->compacDB->whereIn('idEmpresa', $empresasID)->findAll();
-
-        foreach ($todasConexiones as $con) {
-            $dbGroupConfig = [
-                'DBDriver' => 'SQLSRV',
-                'hostname' => $con['host'] ?? '',
-                'database' => $con['database'] ?? '',
-                'username' => $con['user'] ?? '',
-                'password' => $con['password'] ?? '',
-                'port' => $con['port'] ?? 1433,
-                'DBDebug' => false,
-                'charset' => 'UTF-8'
-            ];
-
-            $dbExterna = null;
-            try {
-                // Conectamos igual que en tu modelo de empleados
-                $dbExterna = \Config\Database::connect($dbGroupConfig, false);
-
-                // Quitamos el initialize() y ejecutamos directo el query.
-                // Si el servidor está caído, saltará directo al catch sin romper la ejecución.
-                $qLocalidad = $dbExterna->query("SELECT TOP 1 localidad FROM nom10000");
-
-                if ($qLocalidad) {
-                    $rowLocalidad = $qLocalidad->getRowArray();
-                    if ($rowLocalidad && !empty($rowLocalidad['localidad'])) {
-                        $locLimpia = trim($rowLocalidad['localidad']);
-                        if ($locLimpia !== '') {
-                            $listaLocalidades[] = mb_convert_encoding($locLimpia, 'UTF-8', 'ISO-8859-1');
-                        }
-                    }
-                }
-            } catch (\Throwable $th) {
-                // Si falla una base de datos (por red o credenciales), guardamos el log y continúa con las demás
-                log_message('error', 'Error leyendo localidad en CompacDB ID ' . $con['id'] . ': ' . $th->getMessage());
-            } finally {
-                if ($dbExterna) {
-                    $dbExterna->close(); // Forzamos el cierre de la conexión de este ciclo
-                }
-            }
-        }
-
-        // Depuramos duplicados y armamos la cadena final
-        $localidadesUnicas = array_unique(array_filter($listaLocalidades));
-        $ciudadesConcatenadas = !empty($localidadesUnicas) ? implode(' | ', $localidadesUnicas) : 'SIN LOCALIDAD';
-        // =============================================================
-
+    
+        // Localidades — solo de la conexión actual, no loop de todas
+        $ciudadesConcatenadas = 'LOS MOCHIS | LOS CABOS | TIJUANA | MAZATLAN';
         try {
-            $empleados = $this->empleado->getEmpleadosPorConexion($registro);
-            $empleadoTarget = null;
-            foreach ($empleados as $emp) {
-                $curCode = $emp['codigoempleado'] ?? $emp['CodigoEmpleado'] ?? '';
-                if ($curCode == $codigoEmpleado) {
-                    $rawFoto = $emp['fotografia'] ?? $emp['Fotografia'] ?? null;
-                    unset($emp['fotografia'], $emp['Fotografia']);
-
-                    $empleadoTarget = $this->utf8EncodeRecursive($emp);
-                    $empleadoTarget['has_raw_photo'] = !empty($rawFoto);
-                    break;
-                }
-            }
-
-            if (!$empleadoTarget) {
+            $localidad = $this->empleado->getLocalidadPorConexion($registro);
+            if (!empty($localidad)) $ciudadesConcatenadas = mb_strtoupper($localidad);
+        } catch (\Throwable $e) {
+            log_message('error', 'Error localidad: ' . $e->getMessage());
+        }
+    
+        try {
+            // Un solo empleado, query directo por código
+            $emp = $this->empleado->getEmpleadoPorCodigo($registro, $codigoEmpleado);
+    
+            if (!$emp) {
                 throw new \CodeIgniter\Exceptions\PageNotFoundException('Empleado no encontrado.');
             }
-
-            // --- SECCIÓN DE PRIORIDAD DE FOTOGRAFÍAS ---
-            $photoSrc = "";
-            $fotoLocal = $this->empleadoFotosMdl->where('idCompacDB', $idCompacDB)
-                    ->where('id_empleado', $codigoEmpleado)
-                    ->first();
-
+    
+            $rawFoto = $emp['fotografia'] ?? null;
+            unset($emp['fotografia']);
+            $emp = $this->utf8EncodeRecursive($emp);
+    
+            // Foto local tiene prioridad
+            $photoSrc  = "";
+            $fotoLocal = $this->empleadoFotosMdl
+                ->where('idCompacDB', $idCompacDB)
+                ->where('id_empleado', $codigoEmpleado)
+                ->first();
+    
             if ($fotoLocal && !empty($fotoLocal['rutaFoto'])) {
                 $realPath = WRITEPATH . $fotoLocal['rutaFoto'];
                 if (file_exists($realPath)) {
                     $photoSrc = "data:" . mime_content_type($realPath) . ";base64," . base64_encode(file_get_contents($realPath));
                 }
             }
-
-            if (empty($photoSrc) && $empleadoTarget['has_raw_photo']) {
+    
+            if (empty($photoSrc) && !empty($rawFoto)) {
                 $photoSrc = $this->convertBmpToPngBase64($rawFoto);
             }
-
-            $empleadoTarget['nombrelargo'] = $empleadoTarget['nombre'] . ' ' . $empleadoTarget['apellidopaterno'] . ' ' . $empleadoTarget['apellidomaterno'];
-
+    
+            $nombrelargo = trim(($emp['nombre'] ?? '') . ' ' . ($emp['apellidopaterno'] ?? '') . ' ' . ($emp['apellidomaterno'] ?? ''));
+    
             $configBase = [
-                "st" => [
-                    "nombre" => ["b" => true, "i" => false, "u" => false],
-                    "puesto" => ["b" => true, "i" => false, "u" => false],
-                    "depto-f" => ["b" => true, "i" => false, "u" => false],
-                    "id" => ["b" => true, "i" => false, "u" => false],
+                "st"     => [
+                    "nombre"   => ["b" => true,  "i" => false, "u" => false],
+                    "puesto"   => ["b" => true,  "i" => false, "u" => false],
+                    "depto-f"  => ["b" => true,  "i" => false, "u" => false],
+                    "id"       => ["b" => true,  "i" => false, "u" => false],
                     "ciudades" => ["b" => false, "i" => false, "u" => false],
-                    "id-r" => ["b" => true, "i" => false, "u" => false],
-                    "depto-r" => ["b" => true, "i" => false, "u" => false],
-                    "tel" => ["b" => true, "i" => false, "u" => false],
-                    "correo" => ["b" => true, "i" => false, "u" => false],
-                    "centro" => ["b" => true, "i" => false, "u" => false],
+                    "id-r"     => ["b" => true,  "i" => false, "u" => false],
+                    "depto-r"  => ["b" => true,  "i" => false, "u" => false],
+                    "tel"      => ["b" => true,  "i" => false, "u" => false],
+                    "correo"   => ["b" => true,  "i" => false, "u" => false],
+                    "centro"   => ["b" => true,  "i" => false, "u" => false],
                     "vigencia" => ["b" => false, "i" => false, "u" => false],
-                    "scan" => ["b" => true, "i" => false, "u" => false],
+                    "scan"     => ["b" => true,  "i" => false, "u" => false],
                     "scan-sub" => ["b" => false, "i" => false, "u" => false],
-                    "pie-r" => ["b" => true, "i" => false, "u" => false],
+                    "pie-r"    => ["b" => true,  "i" => false, "u" => false],
                 ],
                 "fields" => [
-                    "f-nombre" => $empleadoTarget['nombrelargo'] ?? '',
-                    "fs-nombre" => "12", "fc-nombre" => "#000000", "fy-nombre" => "204",
-                    "f-puesto" => $empleadoTarget['puesto'] ?? '',
-                    "fs-puesto" => "8", "fc-puesto" => "#cc1111", "fy-puesto" => "237",
-                    "f-depto-f" => $empleadoTarget['departamento'] ?? 'SISTEMAS', "fs-depto-f" => "7", "fc-depto-f" => "#000000", "fy-depto-f" => "250",
-                    "f-id" => $codigoEmpleado, "fs-id" => "9", "fc-id" => "#ffffff", "fy-id" => "263",
-                    // Inyección dinámica de las localidades recolectadas
-                    "f-ciudades" => mb_strtoupper($ciudadesConcatenadas),
-                    "fs-ciudades" => "5", "fc-ciudades" => "#aaaaaa",
-                    "f-id-r" => " " . $codigoEmpleado,
-                    "fs-id-r" => "6",
-                    "fc-id-r" => "#000000",
-                    "f-depto-r" => " " . ($empleadoTarget['departamento'] ?? 'SISTEMAS'),
-                    "fs-depto-r" => "6",
-                    "fc-depto-r" => "#000000",
-                    "f-tel" => " 668 1 361423",
-                    "fs-tel" => "6",
-                    "fc-tel" => "#000000",
-                    "f-correo" => " " . ($empleadoTarget['CorreoElectronico'] ?? 'S/C'),
-                    "fs-correo" => "6",
-                    "fc-correo" => "#000000",
-                    "f-centro" => " LOS MOCHIS, SIN.",
-                    "fs-centro" => "6",
-                    "fc-centro" => "#000000",
-                    "f-vigencia" => " 31/12/2026",
-                    "fs-vigencia" => "6",
-                    "fc-vigencia" => "#000000",
-                    "f-qr" => 'https://constructoragusa.com/empleado/' . $codigoEmpleado,
-                    "f-scan" => "ESCÁNÉAME",
-                    "fs-scan" => "7",
-                    "fc-scan" => "#cc1111",
-                    "f-scan-sub" => "Para validar información",
-                    "fs-scan-sub" => "6",
-                    "fc-scan-sub" => "#000000",
-                    "f-pie-r" => "PROPIEDAD DE CONSTRUCTORA GUSA SA DE CV",
-                    "fs-pie-r" => "6",
-                    "fc-pie-r" => "#ffffff",
-                    "fbg-pie-r" => "#cc1111",
-                    "qr-size" => "100",
-                    "qr-y" => "54",
-                    "scan-y" => "158",
-                    "datos-y" => "200",
-                    "datos-gap" => "4",
-                    "perm-y" => "264",
+                    "f-nombre"     => $nombrelargo,
+                    "fs-nombre"    => "12", "fc-nombre" => "#000000", "fy-nombre" => "204",
+                    "f-puesto"     => $emp['puesto'] ?? '',
+                    "fs-puesto"    => "8",  "fc-puesto" => "#cc1111", "fy-puesto" => "237",
+                    "f-depto-f"    => $emp['departamento'] ?? 'SISTEMAS',
+                    "fs-depto-f"   => "7",  "fc-depto-f" => "#000000", "fy-depto-f" => "250",
+                    "f-id"         => $codigoEmpleado,
+                    "fs-id"        => "9",  "fc-id" => "#ffffff", "fy-id" => "263",
+                    "f-ciudades"   => $ciudadesConcatenadas,
+                    "fs-ciudades"  => "5",  "fc-ciudades" => "#aaaaaa",
+                    "f-id-r"       => " " . $codigoEmpleado,
+                    "fs-id-r"      => "6",  "fc-id-r" => "#000000",
+                    "f-depto-r"    => " " . ($emp['departamento'] ?? 'SISTEMAS'),
+                    "fs-depto-r"   => "6",  "fc-depto-r" => "#000000",
+                    "f-tel"        => " 668 1 361423",
+                    "fs-tel"       => "6",  "fc-tel" => "#000000",
+                    "f-correo"     => " " . ($emp['CorreoElectronico'] ?? 'S/C'),
+                    "fs-correo"    => "6",  "fc-correo" => "#000000",
+                    "f-centro"     => " LOS MOCHIS, SIN.",
+                    "fs-centro"    => "6",  "fc-centro" => "#000000",
+                    "f-vigencia"   => " 31/12/2026",
+                    "fs-vigencia"  => "6",  "fc-vigencia" => "#000000",
+                    "f-qr"         => 'https://servidorgisa.dyndns.org:4431/gusa2025/admin/compacEmpleados/datosGenerator?idCompacDB=1&codigoempleado=' . $codigoEmpleado,
+                    "f-scan"       => "ESCÁNÉAME",
+                    "fs-scan"      => "7",  "fc-scan" => "#cc1111",
+                    "f-scan-sub"   => "Para validar información",
+                    "fs-scan-sub"  => "6",  "fc-scan-sub" => "#000000",
+                    "f-pie-r"      => "CREDENCIAL OFICIAL",
+                    "fs-pie-r"     => "6",  "fc-pie-r" => "#ffffff", "fbg-pie-r" => "#cc1111",
+                    "qr-size"      => "100", "qr-y" => "54",
+                    "scan-y"       => "158", "datos-y" => "200", "datos-gap" => "4", "perm-y" => "264",
                     "pc-0" => false, "pc-1" => false, "pc-2" => false, "pc-3" => false,
-                    "pt-0" => "Acceso Oficinas", "pt-1" => "Acceso Sistema", "pt-2" => "RFID Activo", "pt-3" => "Seguridad Industrial",
-                    "vis-id-r" => true, "align-id-r" => "left",
-                    "vis-depto-r" => true, "align-depto-r" => "left",
-                    "vis-tel" => true, "align-tel" => "left",
-                    "vis-correo" => true, "align-correo" => "left",
-                    "vis-centro" => true, "align-centro" => "left",
-                    "vis-vigencia" => false, "align-vigencia" => "left",
-                    "vis-scan" => true, "align-scan" => "center",
-                    "vis-scan-sub" => true, "align-scan-sub" => "center",
-                    "photo-w" => "97", "photo-h" => "130", "photo-y" => "66",
-                    "photo-src" => $photoSrc,
-                    "f-logo" => $datosEmpresa['logo'] ?? $datosEmpresaObj->logo ?? ''
+                    "pt-0" => "Acceso Oficinas", "pt-1" => "Acceso Sistema",
+                    "pt-2" => "RFID Activo",    "pt-3" => "Seguridad Industrial",
+                    "vis-id-r"      => true,  "align-id-r"      => "left",
+                    "vis-depto-r"   => true,  "align-depto-r"   => "left",
+                    "vis-tel"       => true,  "align-tel"       => "left",
+                    "vis-correo"    => true,  "align-correo"    => "left",
+                    "vis-centro"    => true,  "align-centro"    => "left",
+                    "vis-vigencia"  => false, "align-vigencia"  => "left",
+                    "vis-scan"      => true,  "align-scan"      => "center",
+                    "vis-scan-sub"  => true,  "align-scan-sub"  => "center",
+                    "photo-w"       => "97", "photo-h" => "130", "photo-y" => "66",
+                    "photo-src"     => $photoSrc,
+                    "f-logo"        => $datosEmpresa['logo'] ?? $datosEmpresaObj->logo ?? ''
                 ],
                 "customFields" => []
             ];
-
+    
             return view('julio101290\boilerplatecompac\Views\credencial_generator', [
-                'config' => $configBase,
-                'datosEmpresa' => $datosEmpresa,
-                'datosEmpresaObj' => $datosEmpresaObj
+                'config'         => $configBase,
+                'datosEmpresa'   => $datosEmpresa,
+                'datosEmpresaObj'=> $datosEmpresaObj
             ]);
+    
         } catch (\Throwable $e) {
             log_message('error', 'Error en credencialGenerator: ' . $e->getMessage());
             throw new \CodeIgniter\Exceptions\PageNotFoundException('Error al cargar el generador.');
         }
     }
+    
+    
+    
+     public function datosGenerator() {
+
+    
+        $idCompacDB     = (int) $this->request->getGet('idCompacDB');
+        $codigoEmpleado = $this->request->getGet('codigoempleado');
+    
+        if (!$idCompacDB || !$codigoEmpleado) {
+            throw new \CodeIgniter\Exceptions\PageNotFoundException('Faltan parámetros.');
+        }
+    
+        $registro = $this->compacDB->where('id', $idCompacDB)->first();
+        if (!$registro) {
+            throw new \CodeIgniter\Exceptions\PageNotFoundException('Base de datos no encontrada.');
+        }
+    
+        // Datos de empresa
+        $datosEmpresaObj = null;
+        $datosEmpresa    = null;
+        if (!empty($registro['idEmpresa'])) {
+            $datosEmpresaObj = $this->empresa->where("id", $registro['idEmpresa'])->asObject()->first();
+            if ($datosEmpresaObj) $datosEmpresa = (array) $datosEmpresaObj;
+        }
+    
+        // Localidades — solo de la conexión actual, no loop de todas
+        $ciudadesConcatenadas = 'LOS MOCHIS | LOS CABOS | TIJUANA | MAZATLAN';
+        try {
+            $localidad = $this->empleado->getLocalidadPorConexion($registro);
+            if (!empty($localidad)) $ciudadesConcatenadas = mb_strtoupper($localidad);
+        } catch (\Throwable $e) {
+            log_message('error', 'Error localidad: ' . $e->getMessage());
+        }
+    
+        try {
+            // Un solo empleado, query directo por código
+            $emp = $this->empleado->getEmpleadoPorCodigo($registro, $codigoEmpleado);
+    
+            if (!$emp) {
+                throw new \CodeIgniter\Exceptions\PageNotFoundException('Empleado no encontrado.');
+            }
+    
+            $rawFoto = $emp['fotografia'] ?? null;
+            unset($emp['fotografia']);
+            $emp = $this->utf8EncodeRecursive($emp);
+    
+            // Foto local tiene prioridad
+            $photoSrc  = "";
+            $fotoLocal = $this->empleadoFotosMdl
+                ->where('idCompacDB', $idCompacDB)
+                ->where('id_empleado', $codigoEmpleado)
+                ->first();
+    
+            if ($fotoLocal && !empty($fotoLocal['rutaFoto'])) {
+                $realPath = WRITEPATH . $fotoLocal['rutaFoto'];
+                if (file_exists($realPath)) {
+                    $photoSrc = "data:" . mime_content_type($realPath) . ";base64," . base64_encode(file_get_contents($realPath));
+                }
+            }
+    
+            if (empty($photoSrc) && !empty($rawFoto)) {
+                $photoSrc = $this->convertBmpToPngBase64($rawFoto);
+            }
+    
+            $nombrelargo = trim(($emp['nombre'] ?? '') . ' ' . ($emp['apellidopaterno'] ?? '') . ' ' . ($emp['apellidomaterno'] ?? ''));
+    
+            $configBase = [
+                "st"     => [
+                    "nombre"   => ["b" => true,  "i" => false, "u" => false],
+                    "puesto"   => ["b" => true,  "i" => false, "u" => false],
+                    "depto-f"  => ["b" => true,  "i" => false, "u" => false],
+                    "id"       => ["b" => true,  "i" => false, "u" => false],
+                    "ciudades" => ["b" => false, "i" => false, "u" => false],
+                    "id-r"     => ["b" => true,  "i" => false, "u" => false],
+                    "depto-r"  => ["b" => true,  "i" => false, "u" => false],
+                    "tel"      => ["b" => true,  "i" => false, "u" => false],
+                    "correo"   => ["b" => true,  "i" => false, "u" => false],
+                    "centro"   => ["b" => true,  "i" => false, "u" => false],
+                    "vigencia" => ["b" => false, "i" => false, "u" => false],
+                    "scan"     => ["b" => true,  "i" => false, "u" => false],
+                    "scan-sub" => ["b" => false, "i" => false, "u" => false],
+                    "pie-r"    => ["b" => true,  "i" => false, "u" => false],
+                ],
+                "fields" => [
+                    "f-nombre"     => $nombrelargo,
+                    "fs-nombre"    => "12", "fc-nombre" => "#000000", "fy-nombre" => "204",
+                    "f-puesto"     => $emp['puesto'] ?? '',
+                    "fs-puesto"    => "8",  "fc-puesto" => "#cc1111", "fy-puesto" => "237",
+                    "f-depto-f"    => $emp['departamento'] ?? 'SISTEMAS',
+                    "fs-depto-f"   => "7",  "fc-depto-f" => "#000000", "fy-depto-f" => "250",
+                    "f-id"         => $codigoEmpleado,
+                    "fs-id"        => "9",  "fc-id" => "#ffffff", "fy-id" => "263",
+                    "f-ciudades"   => $ciudadesConcatenadas,
+                    "fs-ciudades"  => "5",  "fc-ciudades" => "#aaaaaa",
+                    "f-id-r"       => " " . $codigoEmpleado,
+                    "fs-id-r"      => "6",  "fc-id-r" => "#000000",
+                    "f-depto-r"    => " " . ($emp['departamento'] ?? 'SISTEMAS'),
+                    "fs-depto-r"   => "6",  "fc-depto-r" => "#000000",
+                    "f-tel"        => " 668 1 361423",
+                    "fs-tel"       => "6",  "fc-tel" => "#000000",
+                    "f-correo"     => " " . ($emp['CorreoElectronico'] ?? 'S/C'),
+                    "fs-correo"    => "6",  "fc-correo" => "#000000",
+                    "f-centro"     => " LOS MOCHIS, SIN.",
+                    "fs-centro"    => "6",  "fc-centro" => "#000000",
+                    "f-vigencia"   => " 31/12/2026",
+                    "fs-vigencia"  => "6",  "fc-vigencia" => "#000000",
+                    "f-qr"         => 'https://servidorgisa.dyndns.org:4431/gusa2025/admin/compacEmpleados/datosGenerator?idCompacDB=1&codigoempleado=' . $codigoEmpleado,
+                    "f-scan"       => "ESCÁNÉAME",
+                    "fs-scan"      => "7",  "fc-scan" => "#cc1111",
+                    "f-scan-sub"   => "Para validar información",
+                    "fs-scan-sub"  => "6",  "fc-scan-sub" => "#000000",
+                    "f-pie-r"      => "CREDENCIAL OFICIAL",
+                    "fs-pie-r"     => "6",  "fc-pie-r" => "#ffffff", "fbg-pie-r" => "#cc1111",
+                    "qr-size"      => "100", "qr-y" => "54",
+                    "scan-y"       => "158", "datos-y" => "200", "datos-gap" => "4", "perm-y" => "264",
+                    "pc-0" => false, "pc-1" => false, "pc-2" => false, "pc-3" => false,
+                    "pt-0" => "Acceso Oficinas", "pt-1" => "Acceso Sistema",
+                    "pt-2" => "RFID Activo",    "pt-3" => "Seguridad Industrial",
+                    "vis-id-r"      => true,  "align-id-r"      => "left",
+                    "vis-depto-r"   => true,  "align-depto-r"   => "left",
+                    "vis-tel"       => true,  "align-tel"       => "left",
+                    "vis-correo"    => true,  "align-correo"    => "left",
+                    "vis-centro"    => true,  "align-centro"    => "left",
+                    "vis-vigencia"  => false, "align-vigencia"  => "left",
+                    "vis-scan"      => true,  "align-scan"      => "center",
+                    "vis-scan-sub"  => true,  "align-scan-sub"  => "center",
+                    "photo-w"       => "97", "photo-h" => "130", "photo-y" => "66",
+                    "photo-src"     => $photoSrc,
+                    "f-logo"        => $datosEmpresa['logo'] ?? $datosEmpresaObj->logo ?? ''
+                ],
+                "customFields" => []
+            ];
+    
+            return view('julio101290\boilerplatecompac\Views\datos_generator', [
+                'config'         => $configBase,
+                'datosEmpresa'   => $datosEmpresa,
+                'datosEmpresaObj'=> $datosEmpresaObj
+            ]);
+    
+        } catch (\Throwable $e) {
+            log_message('error', 'Error en credencialGenerator: ' . $e->getMessage());
+            throw new \CodeIgniter\Exceptions\PageNotFoundException('Error al cargar el generador.');
+        }
+    }
+    
+    public function getEmpleadosServerSide() {
+        helper('auth');
+        $idUser   = user()->id;
+        $empresas = $this->empresa->mdlEmpresasPorUsuario($idUser);
+        $empresasID = count($empresas) === 0 ? [0] : array_column($empresas, 'id');
+    
+        $idCompacDB = (int) $this->request->getPost('idCompacDB');
+        $start      = (int) $this->request->getPost('start');
+        $length     = (int) $this->request->getPost('length');
+        $search     = $this->request->getPost('search')['value'] ?? '';
+        $draw       = (int) $this->request->getPost('draw');
+    
+        if ($idCompacDB <= 0) {
+            return $this->respond(['draw' => $draw, 'recordsTotal' => 0, 'recordsFiltered' => 0, 'data' => []]);
+        }
+    
+        $registro = $this->compacDB->whereIn('idEmpresa', $empresasID)->where('id', $idCompacDB)->first();
+        if (!$registro) {
+            return $this->respond(['draw' => $draw, 'recordsTotal' => 0, 'recordsFiltered' => 0, 'data' => []]);
+        }
+    
+        try {
+            $resultado = $this->empleado->getEmpleadosPaginado($registro, $start, $length, $search);
+    
+            $data = array_map(function($emp) use ($idCompacDB) {
+                $codigo = $emp['codigoempleado'] ?? '';
+                return [
+                    $codigo,
+                    $emp['nombrelargo'] ?? '',
+                    $emp['puesto'] ?? 'Sin puesto',
+                    $emp['CorreoElectronico'] ?? 'Sin correo',
+                    $emp['localidad'] ?? 'LOS MOCHIS | LOS CABOS | TIJUANA | MAZATLAN',
+                    $codigo // para botones en el JS
+                ];
+            }, $resultado['data']);
+    
+            return $this->respond([
+                'draw'            => $draw,
+                'recordsTotal'    => $resultado['total'],
+                'recordsFiltered' => $resultado['filtered'],
+                'data'            => $data,
+                'csrf_hash'       => csrf_hash()
+            ]);
+    
+        } catch (\Throwable $e) {
+            return $this->respond(['draw' => $draw, 'recordsTotal' => 0, 'recordsFiltered' => 0, 'data' => [], 'error' => $e->getMessage()]);
+        }
+    }
+
+   
 
     private function utf8EncodeRecursive($data) {
         if (is_string($data)) {
