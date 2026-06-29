@@ -304,6 +304,155 @@ class CompacEmpleadosController extends BaseController {
             throw new \CodeIgniter\Exceptions\PageNotFoundException('Error al cargar el generador.');
         }
     }
+    
+    
+    public function datosGenerator() {
+        helper('auth');
+        $idUser     = user()->id;
+        $empresas   = $this->empresa->mdlEmpresasPorUsuario($idUser);
+        $empresasID = count($empresas) === 0 ? [0] : array_column($empresas, 'id');
+    
+        $idCompacDB     = (int) $this->request->getGet('idCompacDB');
+        $codigoEmpleado = $this->request->getGet('codigoempleado');
+    
+        if (!$idCompacDB || !$codigoEmpleado) {
+            throw new \CodeIgniter\Exceptions\PageNotFoundException('Faltan parámetros.');
+        }
+    
+        $registro = $this->compacDB->whereIn('idEmpresa', $empresasID)->where('id', $idCompacDB)->first();
+        if (!$registro) {
+            throw new \CodeIgniter\Exceptions\PageNotFoundException('Base de datos no encontrada.');
+        }
+    
+        // Datos de empresa
+        $datosEmpresaObj = null;
+        $datosEmpresa    = null;
+        if (!empty($registro['idEmpresa'])) {
+            $datosEmpresaObj = $this->empresa->where("id", $registro['idEmpresa'])->asObject()->first();
+            if ($datosEmpresaObj) $datosEmpresa = (array) $datosEmpresaObj;
+        }
+    
+        // Localidades — solo de la conexión actual, no loop de todas
+        $ciudadesConcatenadas = 'LOS MOCHIS | LOS CABOS | TIJUANA | MAZATLAN';
+        try {
+            $localidad = $this->empleado->getLocalidadPorConexion($registro);
+            if (!empty($localidad)) $ciudadesConcatenadas = mb_strtoupper($localidad);
+        } catch (\Throwable $e) {
+            log_message('error', 'Error localidad: ' . $e->getMessage());
+        }
+    
+        try {
+            // Un solo empleado, query directo por código
+            $emp = $this->empleado->getEmpleadoPorCodigo($registro, $codigoEmpleado);
+    
+            if (!$emp) {
+                throw new \CodeIgniter\Exceptions\PageNotFoundException('Empleado no encontrado.');
+            }
+    
+            $rawFoto = $emp['fotografia'] ?? null;
+            unset($emp['fotografia']);
+            $emp = $this->utf8EncodeRecursive($emp);
+    
+            // Foto local tiene prioridad
+            $photoSrc  = "";
+            $fotoLocal = $this->empleadoFotosMdl
+                ->where('idCompacDB', $idCompacDB)
+                ->where('id_empleado', $codigoEmpleado)
+                ->first();
+    
+            if ($fotoLocal && !empty($fotoLocal['rutaFoto'])) {
+                $realPath = WRITEPATH . $fotoLocal['rutaFoto'];
+                if (file_exists($realPath)) {
+                    $photoSrc = "data:" . mime_content_type($realPath) . ";base64," . base64_encode(file_get_contents($realPath));
+                }
+            }
+    
+            if (empty($photoSrc) && !empty($rawFoto)) {
+                $photoSrc = $this->convertBmpToPngBase64($rawFoto);
+            }
+    
+            $nombrelargo = trim(($emp['nombre'] ?? '') . ' ' . ($emp['apellidopaterno'] ?? '') . ' ' . ($emp['apellidomaterno'] ?? ''));
+    
+            $configBase = [
+                "st"     => [
+                    "nombre"   => ["b" => true,  "i" => false, "u" => false],
+                    "puesto"   => ["b" => true,  "i" => false, "u" => false],
+                    "depto-f"  => ["b" => true,  "i" => false, "u" => false],
+                    "id"       => ["b" => true,  "i" => false, "u" => false],
+                    "ciudades" => ["b" => false, "i" => false, "u" => false],
+                    "id-r"     => ["b" => true,  "i" => false, "u" => false],
+                    "depto-r"  => ["b" => true,  "i" => false, "u" => false],
+                    "tel"      => ["b" => true,  "i" => false, "u" => false],
+                    "correo"   => ["b" => true,  "i" => false, "u" => false],
+                    "centro"   => ["b" => true,  "i" => false, "u" => false],
+                    "vigencia" => ["b" => false, "i" => false, "u" => false],
+                    "scan"     => ["b" => true,  "i" => false, "u" => false],
+                    "scan-sub" => ["b" => false, "i" => false, "u" => false],
+                    "pie-r"    => ["b" => true,  "i" => false, "u" => false],
+                ],
+                "fields" => [
+                    "f-nombre"     => $nombrelargo,
+                    "fs-nombre"    => "12", "fc-nombre" => "#000000", "fy-nombre" => "204",
+                    "f-puesto"     => $emp['puesto'] ?? '',
+                    "fs-puesto"    => "8",  "fc-puesto" => "#cc1111", "fy-puesto" => "237",
+                    "f-depto-f"    => $emp['departamento'] ?? 'SISTEMAS',
+                    "fs-depto-f"   => "7",  "fc-depto-f" => "#000000", "fy-depto-f" => "250",
+                    "f-id"         => $codigoEmpleado,
+                    "fs-id"        => "9",  "fc-id" => "#ffffff", "fy-id" => "263",
+                    "f-ciudades"   => $ciudadesConcatenadas,
+                    "fs-ciudades"  => "5",  "fc-ciudades" => "#aaaaaa",
+                    "f-id-r"       => " " . $codigoEmpleado,
+                    "fs-id-r"      => "6",  "fc-id-r" => "#000000",
+                    "f-depto-r"    => " " . ($emp['departamento'] ?? 'SISTEMAS'),
+                    "fs-depto-r"   => "6",  "fc-depto-r" => "#000000",
+                    "f-tel"        => " 668 1 361423",
+                    "fs-tel"       => "6",  "fc-tel" => "#000000",
+                    "f-correo"     => " " . ($emp['CorreoElectronico'] ?? 'S/C'),
+                    "fs-correo"    => "6",  "fc-correo" => "#000000",
+                    "f-centro"     => " LOS MOCHIS, SIN.",
+                    "fs-centro"    => "6",  "fc-centro" => "#000000",
+                    "f-vigencia"   => " 31/12/2026",
+                    "fs-vigencia"  => "6",  "fc-vigencia" => "#000000",
+                    "f-qr"         => 'https://servidorgisa.dyndns.org:4431/gusa2025/admin/compacEmpleados/datosGenerator?idCompacDB=1&codigoempleado=' . $codigoEmpleado,
+                    "f-scan"       => "ESCÁNÉAME",
+                    "fs-scan"      => "7",  "fc-scan" => "#cc1111",
+                    "f-scan-sub"   => "Para validar información",
+                    "fs-scan-sub"  => "6",  "fc-scan-sub" => "#000000",
+                    "f-pie-r"      => "CREDENCIAL OFICIAL",
+                    "fs-pie-r"     => "6",  "fc-pie-r" => "#ffffff", "fbg-pie-r" => "#cc1111",
+                    "qr-size"      => "100", "qr-y" => "54",
+                    "scan-y"       => "158", "datos-y" => "200", "datos-gap" => "4", "perm-y" => "264",
+                    "pc-0" => false, "pc-1" => false, "pc-2" => false, "pc-3" => false,
+                    "pt-0" => "Acceso Oficinas", "pt-1" => "Acceso Sistema",
+                    "pt-2" => "RFID Activo",    "pt-3" => "Seguridad Industrial",
+                    "vis-id-r"      => true,  "align-id-r"      => "left",
+                    "vis-depto-r"   => true,  "align-depto-r"   => "left",
+                    "vis-tel"       => true,  "align-tel"       => "left",
+                    "vis-correo"    => true,  "align-correo"    => "left",
+                    "vis-centro"    => true,  "align-centro"    => "left",
+                    "vis-vigencia"  => false, "align-vigencia"  => "left",
+                    "vis-scan"      => true,  "align-scan"      => "center",
+                    "vis-scan-sub"  => true,  "align-scan-sub"  => "center",
+                    "photo-w"       => "97", "photo-h" => "130", "photo-y" => "66",
+                    "photo-src"     => $photoSrc,
+                    "f-logo"        => $datosEmpresa['logo'] ?? $datosEmpresaObj->logo ?? ''
+                ],
+                "customFields" => []
+            ];
+    
+            return view('julio101290\boilerplatecompac\Views\credencial_generator', [
+                'config'         => $configBase,
+                'datosEmpresa'   => $datosEmpresa,
+                'datosEmpresaObj'=> $datosEmpresaObj
+            ]);
+    
+        } catch (\Throwable $e) {
+            log_message('error', 'Error en credencialGenerator: ' . $e->getMessage());
+            throw new \CodeIgniter\Exceptions\PageNotFoundException('Error al cargar el generador.');
+        }
+    }
+    
+    
     public function getEmpleadosServerSide() {
         helper('auth');
         $idUser   = user()->id;

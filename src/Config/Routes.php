@@ -69,6 +69,12 @@ $routes->group('admin', function ($routes) {
             'CompacEmpleadosController::credencialGenerator',
             ['namespace' => 'julio101290\boilerplatecompac\Controllers']
         );
+        
+               // Generador de credencial (vista)
+        $routes->get('compacEmpleados/datosGenerator',
+            'CompacEmpleadosController::datosGenerator',
+            ['namespace' => 'julio101290\boilerplatecompac\Controllers']
+        );
     
         // Fotos de empleados
         $routes->post('compacEmpleados/uploadLocalFoto',
