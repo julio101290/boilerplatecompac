@@ -511,7 +511,7 @@
 
         <div id="panel">
             <div class="panel-header">
-                <h1>Diseñador Credenciales v8</h1>
+                <h1>Diseñador GUSA v8</h1>
                 <p>Ajuste Fino de Matrices Vectoriales</p>
             </div>
 
