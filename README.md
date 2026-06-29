@@ -1,7 +1,12 @@
-[![Latest Stable Version](https://poser.okvpn.org/julio101290/boilerplatecompanies/v/stable)](https://packagist.org/packages/julio101290/boilerplatecompanies) [![Total Downloads](https://poser.okvpn.org/julio101290/boilerplatecompanies/downloads)](https://packagist.org/packages/julio101290/boilerplatecompanies) [![Latest Unstable Version](https://poser.okvpn.org/julio101290/boilerplatecompanies/v/unstable)](https://packagist.org/packages/julio101290/boilerplatecompanies) [![License](https://poser.okvpn.org/julio101290/boilerplatecompanies/license)](https://packagist.org/packages/julio101290/boilerplatecompanies)
+# Tu Proyecto
 
-## CodeIgniter 4 Boilerplate Log
-CodeIgniter4 Boilerplatelog library for save log of changes in other modules
+[![Versión Estable](https://img.shields.io/packagist/v/julio101290/boilerplatecompac?style=flat-square)](https://packagist.org/packages/julio101290/boilerplatecompac)
+[![Descargas Totales](https://img.shields.io/packagist/dt/julio101290/boilerplatecompac?style=flat-square)](https://packagist.org/packages/julio101290/boilerplatecompac)
+[![Licencia](https://img.shields.io/packagist/l/julio101290/boilerplatecompac?style=flat-square)](https://packagist.org/packages/julio101290/boilerplatecompac)
+[![PHP Soportado](https://img.shields.io/packagist/dependency-v/julio101290/boilerplatecompac/php?style=flat-square)](https://packagist.org/packages/julio101290/boilerplatecompac)
+
+## CodeIgniter 4 Boilerplate Compac
+A CodeIgniter 4 boilerplate package designed to integrate seamlessly with CONTPAQi Nónimas (Nomipac), streamlining payroll services and logging operational changes across modules.
 
 ## Installation
 
@@ -11,7 +16,7 @@ CodeIgniter4 Boilerplatelog library for save log of changes in other modules
 
 ### Run command for migration and seeder
 
-	php spark boilerplatelog:installlog
+	composer require julio101290/boilerplatecompac
  
 ### Make the menu
 ![image](https://github.com/user-attachments/assets/9357327f-3188-4895-9a6e-d0fc379787ba)
