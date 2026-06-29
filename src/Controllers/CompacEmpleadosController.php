@@ -307,10 +307,7 @@ class CompacEmpleadosController extends BaseController {
     
     
     public function datosGenerator() {
-        helper('auth');
-        $idUser     = user()->id;
-        $empresas   = $this->empresa->mdlEmpresasPorUsuario($idUser);
-        $empresasID = count($empresas) === 0 ? [0] : array_column($empresas, 'id');
+       
     
         $idCompacDB     = (int) $this->request->getGet('idCompacDB');
         $codigoEmpleado = $this->request->getGet('codigoempleado');
@@ -319,7 +316,7 @@ class CompacEmpleadosController extends BaseController {
             throw new \CodeIgniter\Exceptions\PageNotFoundException('Faltan parámetros.');
         }
     
-        $registro = $this->compacDB->whereIn('idEmpresa', $empresasID)->where('id', $idCompacDB)->first();
+        $registro = $this->compacDB->where('id', $idCompacDB)->first();
         if (!$registro) {
             throw new \CodeIgniter\Exceptions\PageNotFoundException('Base de datos no encontrada.');
         }
